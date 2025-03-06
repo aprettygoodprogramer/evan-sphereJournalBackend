@@ -28,7 +28,7 @@ async fn receive_token(Json(payload): Json<GoogleAuthRequest>) -> String {
             if response.status().is_success() {
                 match response.json::<GoogleTokenInfo>().await {
                     Ok(user_info) => {
-                        println!("✅ Token Verified! User: {:?}", user_info);
+                        println!("Token Verified! User: {:?}", user_info);
                         format!("Valid Token! Welcome, {}!", user_info.name)
                     }
                     Err(_) => "Invalid JSON".to_string(),

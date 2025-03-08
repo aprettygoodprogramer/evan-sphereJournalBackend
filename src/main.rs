@@ -1,9 +1,15 @@
-use axum::{routing::post, Json, Router};
+use axum::{
+    Router,
+    extract::{Json, State},
+    routing::post,
+};
 use reqwest;
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
+use std::env;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
-
 #[derive(Deserialize)]
 struct GoogleAuthRequest {
     id_token: String,
@@ -17,7 +23,15 @@ struct GoogleTokenInfo {
     sub: String,
 }
 
-async fn receive_token(Json(payload): Json<GoogleAuthRequest>) -> String {
+#[derive(Clone)]
+struct AppState {
+    db_pool: PgPool,
+}
+
+async fn receive_token(
+    State(state): State<AppState>,
+    Json(payload): Json<GoogleAuthRequest>,
+) -> String {
     let verification_url = format!(
         "https://oauth2.googleapis.com/tokeninfo?id_token={}",
         payload.id_token
@@ -28,31 +42,71 @@ async fn receive_token(Json(payload): Json<GoogleAuthRequest>) -> String {
             if response.status().is_success() {
                 match response.json::<GoogleTokenInfo>().await {
                     Ok(user_info) => {
-                        println!("Token Verified! User: {:?}", user_info);
-                        format!("Valid Token! Welcome, {}!", user_info.name)
+                        let insert_result = sqlx::query(
+                            "INSERT INTO users (email, name, picture, sub) VALUES ($1, $2, $3, $4)",
+                        )
+                        .bind(&user_info.email)
+                        .bind(&user_info.name)
+                        .bind(&user_info.picture)
+                        .bind(&user_info.sub)
+                        .execute(&state.db_pool)
+                        .await;
+
+                        match insert_result {
+                            Ok(result) => {
+                                println!("Token verified and inserted user: {:?}", user_info);
+                                format!(
+                                    "Valid Token! Welcome, {}! (Inserted {} row(s))",
+                                    user_info.name,
+                                    result.rows_affected()
+                                )
+                            }
+                            Err(e) => {
+                                println!("Error inserting into database: {:?}", e);
+                                "Token verified but failed to save email.".to_string()
+                            }
+                        }
                     }
-                    Err(_) => "Invalid JSON".to_string(),
+                    Err(e) => {
+                        println!("Error parsing token info: {:?}", e);
+                        "Invalid JSON received from token verification.".to_string()
+                    }
                 }
             } else {
                 "Invalid Token".to_string()
             }
         }
-        Err(_) => "Failed to verify token".to_string(),
+        Err(e) => {
+            println!("Error verifying token: {:?}", e);
+            "Failed to verify token.".to_string()
+        }
     }
 }
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
+
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .expect("Failed to create pool");
+
+    let app_state = AppState { db_pool: pool };
+
     let app = Router::new()
         .route("/auth/google", post(receive_token))
+        .with_state(app_state)
         .layer(cors);
 
     println!("Listening on port 3000...");
-    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:12345").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }

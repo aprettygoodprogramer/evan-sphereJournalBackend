@@ -1,5 +1,9 @@
-use axum::{Json, Router, extract::State, http::HeaderValue, routing::get, routing::post};
-
+use axum::{
+    Json, Router,
+    extract::State,
+    http::HeaderValue,
+    routing::{get, post},
+};
 use http::Method;
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -8,6 +12,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::env;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
+
 #[derive(Deserialize)]
 struct GoogleAuthRequest {
     id_token: String,
@@ -24,6 +29,10 @@ struct GoogleTokenInfo {
 #[derive(Clone)]
 struct AppState {
     db_pool: PgPool,
+}
+
+async fn hello_world() -> &'static str {
+    "Hello, World!"
 }
 
 async fn receive_token(
@@ -105,11 +114,12 @@ async fn main() {
     let app_state = AppState { db_pool: pool };
 
     let app = Router::new()
+        .route("/hello", get(hello_world))
         .route("/auth/google", post(receive_token))
         .with_state(app_state)
         .layer(cors);
 
-    println!("Listening on port 3000...");
+    println!("Listening on port 12345...");
     let listener = TcpListener::bind("0.0.0.0:12345").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }

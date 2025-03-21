@@ -1,5 +1,6 @@
 use axum::{Json, Router, extract::State, http::HeaderValue, routing::get, routing::post};
 
+use http::Method;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -7,7 +8,6 @@ use sqlx::postgres::PgPoolOptions;
 use std::env;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
-
 #[derive(Deserialize)]
 struct GoogleAuthRequest {
     id_token: String,
@@ -86,12 +86,13 @@ async fn main() {
     dotenv::dotenv().ok();
 
     let cors = CorsLayer::new()
-        .allow_origin(
+        .allow_origin([
             "https://proud-adaptation-staging.up.railway.app"
                 .parse::<HeaderValue>()
                 .unwrap(),
-        )
-        .allow_methods(Any)
+            "http://localhost:5173".parse::<HeaderValue>().unwrap(),
+        ])
+        .allow_methods([Method::POST, Method::GET])
         .allow_headers(Any);
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");

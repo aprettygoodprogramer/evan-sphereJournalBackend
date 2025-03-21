@@ -2,13 +2,11 @@ use axum::{
     Json, Router,
     extract::State,
     http::HeaderValue,
+    http::Method,
     routing::{get, post},
 };
-use http::Method;
-use reqwest;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::env;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
@@ -45,81 +43,70 @@ async fn receive_token(
     );
 
     match reqwest::get(&verification_url).await {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<GoogleTokenInfo>().await {
-                    Ok(user_info) => {
-                        let insert_result = sqlx::query(
-                            "INSERT INTO users (email, name, picture, sub) VALUES ($1, $2, $3, $4)",
-                        )
-                        .bind(&user_info.email)
-                        .bind(&user_info.name)
-                        .bind(&user_info.picture)
-                        .bind(&user_info.sub)
-                        .execute(&state.db_pool)
-                        .await;
-
-                        match insert_result {
-                            Ok(result) => {
-                                println!("Token verified and inserted user: {:?}", user_info);
-                                format!(
-                                    "Valid Token! Welcome, {}! (Inserted {} row(s))",
-                                    user_info.name,
-                                    result.rows_affected()
-                                )
-                            }
-                            Err(e) => {
-                                println!("Error inserting into database: {:?}", e);
-                                "Token verified but failed to save email.".to_string()
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        println!("Error parsing token info: {:?}", e);
-                        "Invalid JSON received from token verification.".to_string()
-                    }
-                }
-            } else {
-                "Invalid Token".to_string()
+        Ok(response) if response.status().is_success() => {
+            match response.json::<GoogleTokenInfo>().await {
+                Ok(user_info) => handle_user_info(user_info, state).await,
+                Err(e) => log_error("Token parsing", e),
             }
         }
+        Ok(_) => "Invalid Token".to_string(),
+        Err(e) => log_error("Token verification", e),
+    }
+}
+
+async fn handle_user_info(user_info: GoogleTokenInfo, state: AppState) -> String {
+    match sqlx::query("INSERT INTO users (email, name, picture, sub) VALUES ($1, $2, $3, $4)")
+        .bind(&user_info.email)
+        .bind(&user_info.name)
+        .bind(&user_info.picture)
+        .bind(&user_info.sub)
+        .execute(&state.db_pool)
+        .await
+    {
+        Ok(result) => format!(
+            "Welcome {}! (Inserted {} row(s))",
+            user_info.name,
+            result.rows_affected()
+        ),
         Err(e) => {
-            println!("Error verifying token: {:?}", e);
-            "Failed to verify token.".to_string()
+            eprintln!("Database error: {:?}", e);
+            "Failed to save user".to_string()
         }
     }
+}
+
+fn log_error(context: &str, error: impl std::fmt::Debug) -> String {
+    eprintln!("{} error: {:?}", context, error);
+    "Authentication error".to_string()
 }
 
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
 
+    let frontend_url = env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".into());
+    let port = env::var("PORT").unwrap_or_else(|_| "12345".into());
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
     let cors = CorsLayer::new()
-        .allow_origin([
-            "https://proud-adaptation-staging.up.railway.app"
-                .parse::<HeaderValue>()
-                .unwrap(),
-            "http://localhost:5173".parse::<HeaderValue>().unwrap(),
-        ])
+        .allow_origin(frontend_url.parse::<HeaderValue>().unwrap())
         .allow_methods([Method::POST, Method::GET])
         .allow_headers(Any);
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
         .expect("Failed to create pool");
 
-    let app_state = AppState { db_pool: pool };
-
     let app = Router::new()
         .route("/hello", get(hello_world))
         .route("/auth/google", post(receive_token))
-        .with_state(app_state)
+        .with_state(AppState { db_pool: pool })
         .layer(cors);
 
-    println!("Listening on port 12345...");
-    let listener = TcpListener::bind("0.0.0.0:12345").await.unwrap();
+    let addr = format!("0.0.0.0:{}", port);
+    println!("Server starting on {}", addr);
+    let listener = TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }

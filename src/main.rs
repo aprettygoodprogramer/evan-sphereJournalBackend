@@ -1,8 +1,5 @@
-use axum::{
-    Router,
-    extract::{Json, State},
-    routing::post,
-};
+use axum::{Json, Router, extract::State, http::HeaderValue, routing::get, routing::post};
+
 use reqwest;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -10,6 +7,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::env;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
+
 #[derive(Deserialize)]
 struct GoogleAuthRequest {
     id_token: String,
@@ -88,7 +86,11 @@ async fn main() {
     dotenv::dotenv().ok();
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(
+            "https://proud-adaptation-staging.up.railway.app"
+                .parse::<HeaderValue>()
+                .unwrap(),
+        )
         .allow_methods(Any)
         .allow_headers(Any);
 

@@ -1,5 +1,6 @@
 mod handlers;
 mod models;
+use chrono::Duration as ChronoDuration;
 
 use axum::{
     Router,
@@ -31,11 +32,15 @@ async fn main() {
         .connect(&database_url)
         .await
         .expect("Failed to create pool");
-
+    let app_state: AppState = AppState {
+        db_pool: pool,
+        session_cookie_name: "session_id".into(),
+        session_ttl: ChronoDuration::days(7),
+    };
     let app = Router::new()
         .route("/hello", get(hello_world))
         .route("/auth/google", post(receive_token))
-        .with_state(AppState { db_pool: pool })
+        .with_state(app_state)
         .layer(cors);
 
     let addr = format!("0.0.0.0:{}", port);

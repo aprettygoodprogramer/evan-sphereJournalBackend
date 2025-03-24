@@ -1,10 +1,10 @@
+use crate::models::{AppState, AuthResponse, GoogleAuthRequest, GoogleTokenInfo};
 use axum::{Json, extract::State};
+use chrono::Utc;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-
-use crate::models::{AppState, AuthResponse, GoogleAuthRequest, GoogleTokenInfo};
-
+use uuid::Uuid;
 pub async fn hello_world() -> &'static str {
     "Hello, World!"
 }
@@ -46,6 +46,7 @@ pub async fn receive_token(
 }
 
 async fn handle_user_info(user_info: GoogleTokenInfo, state: AppState) -> Json<AuthResponse> {
+    let userSub = user_info.sub.to_string();
     match sqlx::query("INSERT INTO users (email, name, picture, sub) VALUES ($1, $2, $3, $4)")
         .bind(&user_info.email)
         .bind(&user_info.name)
@@ -75,4 +76,23 @@ async fn handle_user_info(user_info: GoogleTokenInfo, state: AppState) -> Json<A
 fn log_error(context: &str, error: impl fmt::Debug) -> String {
     eprintln!("{} error: {:?}", context, error);
     "Authentication error".to_string()
+}
+
+async fn create_session(state: AppState, sub: String) -> Uuid {
+    let session_id: Uuid = Uuid::new_v4();
+    let expires_at = Utc::now() + state.session_ttl;
+    match sqlx::query("INSERT INTO sessions (sessions_id, user_id, expires_at, created_at) VALUES ($1, $2, $3, $4)")
+        .bind(&session_id.to_string())
+        .bind(&sub)
+        .bind(&expires_at.to_rfc3339())
+        .execute(&state.db_pool)
+        .await {
+
+
+            Ok(result) => session_id,
+            Err(e) => {
+                eprintln!("Database error: {:?}", e);
+                session_id
+            }
+        }
 }

@@ -34,7 +34,6 @@ async fn main() {
         .expect("Failed to create pool");
     let app_state: AppState = AppState {
         db_pool: pool,
-        session_cookie_name: "session_id".into(),
         session_ttl: ChronoDuration::days(7),
     };
     let app = Router::new()

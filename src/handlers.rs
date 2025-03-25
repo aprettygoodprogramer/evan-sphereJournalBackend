@@ -3,6 +3,7 @@ use axum::{Json, extract::State};
 use chrono::Utc;
 use reqwest;
 use serde::{Deserialize, Serialize};
+use sqlx::types::chrono::DateTime;
 use std::fmt;
 use uuid::Uuid;
 pub async fn hello_world() -> &'static str {
@@ -27,6 +28,7 @@ pub async fn receive_token(
                     Json(AuthResponse {
                         success: false,
                         message,
+                        session_id: Uuid::new_v4(),
                     })
                 }
             }
@@ -34,12 +36,14 @@ pub async fn receive_token(
         Ok(_) => Json(AuthResponse {
             success: false,
             message: "Invalid Token".to_string(),
+            session_id: Uuid::new_v4(),
         }),
         Err(e) => {
             let message = log_error("Token verification", e);
             Json(AuthResponse {
                 success: false,
                 message,
+                session_id: Uuid::new_v4(),
             })
         }
     }
@@ -62,12 +66,14 @@ async fn handle_user_info(user_info: GoogleTokenInfo, state: AppState) -> Json<A
                 user_info.name,
                 result.rows_affected()
             ),
+            session_id: create_session(state, userSub).await,
         }),
         Err(e) => {
             eprintln!("Database error: {:?}", e);
             Json(AuthResponse {
                 success: false,
                 message: "Failed to save user".to_string(),
+                session_id: Uuid::new_v4(),
             })
         }
     }
@@ -81,18 +87,17 @@ fn log_error(context: &str, error: impl fmt::Debug) -> String {
 async fn create_session(state: AppState, sub: String) -> Uuid {
     let session_id: Uuid = Uuid::new_v4();
     let expires_at = Utc::now() + state.session_ttl;
-    match sqlx::query("INSERT INTO sessions (sessions_id, user_id, expires_at, created_at) VALUES ($1, $2, $3, $4)")
-        .bind(&session_id.to_string())
+    match sqlx::query("INSERT INTO sessions (session_id, user_id, expires_at) VALUES ($1, $2, $3)")
+        .bind(&session_id)
         .bind(&sub)
-        .bind(&expires_at.to_rfc3339())
+        .bind(&expires_at)
         .execute(&state.db_pool)
-        .await {
-
-
-            Ok(result) => session_id,
-            Err(e) => {
-                eprintln!("Database error: {:?}", e);
-                session_id
-            }
+        .await
+    {
+        Ok(result) => session_id,
+        Err(e) => {
+            eprintln!("Database error: {:?}", e);
+            session_id
         }
+    }
 }

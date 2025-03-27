@@ -30,3 +30,9 @@ pub struct AppState {
 
     pub session_ttl: ChronoDuration,
 }
+
+#[derive(Deserialize, Serialize)]
+pub struct Verify_Session_Request {
+    pub session_id: Uuid,
+    pub sub: String,
+}

@@ -1,4 +1,6 @@
-use crate::models::{AppState, AuthResponse, GoogleAuthRequest, GoogleTokenInfo};
+use crate::models::{
+    AppState, AuthResponse, GoogleAuthRequest, GoogleTokenInfo, Verify_Session_Request,
+};
 use axum::{Json, extract::State};
 use chrono::Utc;
 use reqwest;
@@ -98,6 +100,39 @@ async fn create_session(state: AppState, sub: String) -> Uuid {
         Err(e) => {
             eprintln!("Database error: {:?}", e);
             session_id
+        }
+    }
+}
+
+pub async fn verify_session(
+    state: AppState,
+    Json(payload): Json<Verify_Session_Request>,
+) -> Json<AuthResponse> {
+    match sqlx::query_as::<_, (Uuid, DateTime<Utc>)>(
+        "SELECT session_id, expires_at FROM sessions WHERE session_id = $1 AND user_id = $2",
+    )
+    .bind(&payload.session_id)
+    .bind(&payload.sub)
+    .fetch_one(&state.db_pool)
+    .await
+    {
+        Ok((session_id, expires_at)) if expires_at > Utc::now() => Json(AuthResponse {
+            success: true,
+            message: "Session is valid".to_string(),
+            session_id,
+        }),
+        Ok(_) => Json(AuthResponse {
+            success: false,
+            message: "Session expired".to_string(),
+            session_id: Uuid::new_v4(),
+        }),
+        Err(e) => {
+            eprintln!("Database error: {:?}", e);
+            Json(AuthResponse {
+                success: false,
+                message: "Failed to verify session".to_string(),
+                session_id: Uuid::new_v4(),
+            })
         }
     }
 }

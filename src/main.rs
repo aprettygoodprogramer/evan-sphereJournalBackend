@@ -7,7 +7,7 @@ use axum::{
     http::{HeaderValue, Method},
     routing::{get, post},
 };
-use handlers::{hello_world, receive_token};
+use handlers::{hello_world, receive_token, verify_session};
 use models::AppState;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::env;
@@ -39,6 +39,7 @@ async fn main() {
     let app = Router::new()
         .route("/hello", get(hello_world))
         .route("/auth/google", post(receive_token))
+        .route("/auth/verify", post(verify_session))
         .with_state(app_state)
         .layer(cors);
 

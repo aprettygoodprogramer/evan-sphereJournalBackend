@@ -15,6 +15,10 @@ pub struct AuthResponse {
     pub message: String,
     pub session_id: Uuid,
 }
+#[derive(Deserialize, Serialize)]
+pub struct VerifyResponse {
+    pub success: bool,
+    }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GoogleTokenInfo {

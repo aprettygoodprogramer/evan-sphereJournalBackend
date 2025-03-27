@@ -1,5 +1,5 @@
 use crate::models::{
-    AppState, AuthResponse, GoogleAuthRequest, GoogleTokenInfo, Verify_Session_Request,
+    AppState, AuthResponse, GoogleAuthRequest, GoogleTokenInfo, VerifyResponse, Verify_Session_Request
 };
 use axum::{Json, extract::State};
 use chrono::Utc;
@@ -103,11 +103,10 @@ async fn create_session(state: AppState, sub: String) -> Uuid {
         }
     }
 }
-
 pub async fn verify_session(
-    state: AppState,
+    State(state): State<AppState>,
     Json(payload): Json<Verify_Session_Request>,
-) -> Json<AuthResponse> {
+) -> Json<VerifyResponse> {
     match sqlx::query_as::<_, (Uuid, DateTime<Utc>)>(
         "SELECT session_id, expires_at FROM sessions WHERE session_id = $1 AND user_id = $2",
     )
@@ -116,22 +115,16 @@ pub async fn verify_session(
     .fetch_one(&state.db_pool)
     .await
     {
-        Ok((session_id, expires_at)) if expires_at > Utc::now() => Json(AuthResponse {
+        Ok((session_id, expires_at)) if expires_at > Utc::now() => Json(VerifyResponse {
             success: true,
-            message: "Session is valid".to_string(),
-            session_id,
         }),
-        Ok(_) => Json(AuthResponse {
+        Ok(_) => Json(VerifyResponse {
             success: false,
-            message: "Session expired".to_string(),
-            session_id: Uuid::new_v4(),
         }),
         Err(e) => {
             eprintln!("Database error: {:?}", e);
-            Json(AuthResponse {
+            Json(VerifyResponse {
                 success: false,
-                message: "Failed to verify session".to_string(),
-                session_id: Uuid::new_v4(),
             })
         }
     }
